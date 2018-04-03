@@ -79,7 +79,7 @@ int main(int argc, char *argv[])
     }
     freeaddrinfo(addr_info);
 
-    message = "GET / HTTP/1.1\n\n";
+    message = "Test payload!";
     if (msg_send(sock, message, strlen(message)) == SOCKET_ERROR)
     {
         return err("Uh-oh. Looks like your message failed to send.");
