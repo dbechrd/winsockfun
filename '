@@ -25,108 +25,128 @@ void dlb_assert(int err, const char* msg, const char *file, int line)
 #define MAX_CONNECTIONS 5
 #define PORT 8080
 
-void gatekeeper(int sock_fd_server);
+int sock_fd_server;
+int sock_fd_clients[MAX_CONNECTIONS];
+
+void gatekeeper();
 void copycat(int sock_fd, const char *client_ip);
 
 int main(int argc, char *argv[])
 {
-    int sock_fd_server;
 	int port;
 	struct sockaddr_in serv_addr;
+	int client_idx;
     int enable = 1;
 
     DLB_UNUSED(argc);
     DLB_UNUSED(argv);
 	DLB_ZERO(serv_addr);
 
-	printf("[Server] Creating socket\n");
+	printf("Creating socket\n");
 	sock_fd_server = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock_fd_server < 0)
 	{
-		DLB_ERROR("[Server] Failed to open socket");
+		DLB_ERROR("Failed to open socket");
 	}
 
     if (setsockopt(sock_fd_server, SOL_SOCKET, SO_REUSEADDR, &enable,
                    sizeof(int)) < 0)
     {
-        fprintf(stderr, "[ERROR][Server] Failed to set REUSEADDR socket options\n");
+        fprintf(stderr, "[ERROR] Failed to set REUSEADDR socket options\n");
     }
 
-	printf("[Server] Binding to port %d\n", PORT);
+	printf("Binding to port %d\n", PORT);
 	port = PORT;
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = INADDR_ANY;
 	serv_addr.sin_port = htons(port);
 	if (bind(sock_fd_server, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
 	{
-		DLB_ERROR("[Server] Failed to bind to port");
+		DLB_ERROR("Failed to bind to port");
 	}
 
-	printf("[Server] Listening on port %d\n", PORT);
+	printf("Listening on port %d\n", PORT);
 	listen(sock_fd_server, MAX_CONNECTIONS);
 
 	// Split gatekeeper into its own thread
 	if (!fork())
 	{
-		gatekeeper(sock_fd_server);
+        printf("GateKeeper on duty!\n");
+		gatekeeper();
+        printf("GateKeeper went home :(\n");
     }
     else
     {
         // Run server until admin presses a key
-        printf("[Server] Press any key to exit...\n");
         getchar();
+        for (client_idx = 0; client_idx < MAX_CONNECTIONS; client_idx++)
+        {
+            if (sock_fd_clients[client_idx])
+            {
+                //close(sock_fd_clients[client_idx]);
+                shutdown(sock_fd_clients[client_idx], 2);
+            }
+        }
         //close(sock_fd_server);
         shutdown(sock_fd_server, 2);
-        printf("[Server] Goodbye\n");
+        printf("Goodbye\n");
 	}
 
 	return 0;
 }
 
-void gatekeeper(int sock_fd_server)
+void gatekeeper()
 {
 	struct sockaddr_in client_addr;
-    int sock_fd_client;
 	unsigned int client_len = sizeof(client_addr);
+    int client_idx;
     const char *client_ip;
     int loop_hack = 0;
 
-    // HACK: GateKeeper kept going home early, so @Dizenth suggested I
-    //       increase his pay. It worked! DO NOT EDIT!!!!!!!!!!
-    const int GateKeeperPay = 500000;
-
-    DLB_UNUSED(GateKeeperPay);
 	DLB_ZERO(client_addr);
 
-    printf("[GateKeeper] on duty!\n");
 	while (getppid() > 1 && loop_hack++ < 10)
 	{
-        sock_fd_client = accept(sock_fd_server,
-                (struct sockaddr *)&client_addr, &client_len);
-        if (sock_fd_client < 0)
+        // Find available socket
+        for (client_idx = 0; client_idx < MAX_CONNECTIONS; client_idx++)
         {
-            // Parent died, time to leave!
-            if (getppid() <= 1)
+            if (sock_fd_clients[client_idx] == 0)
                 break;
+        }
 
-            // TODO: What else can I log here?
-            //DLB_ERROR("Failed to accept incoming connection");
-            fprintf(stderr, "[GateKeeper] Failed to accept incoming connection\n");
+        if (client_idx < MAX_CONNECTIONS)
+        {
+            sock_fd_clients[client_idx] = accept(sock_fd_server,
+                    (struct sockaddr *)&client_addr, &client_len);
+            if (sock_fd_clients[client_idx] < 0)
+            {
+                // Parent died, time to leave!
+                if (getppid() <= 1)
+                    break;
+
+                // TODO: What else can I log here?
+                //DLB_ERROR("Failed to accept incoming connection");
+                fprintf(stderr, "Failed to accept incoming connection\n");
+                sock_fd_clients[client_idx] = 0;
+            }
+            else
+            {
+                client_ip = inet_ntoa(client_addr.sin_addr);
+
+                // Send client to copycat
+                if (!fork())
+                {
+                    printf("Entering copycat for client: %s\n", client_ip);
+                    copycat(sock_fd_clients[client_idx], client_ip);
+                    break;
+                }
+            }
         }
         else
         {
-            client_ip = inet_ntoa(client_addr.sin_addr);
-
-            // Send client to copycat
-            if (!fork())
-            {
-                copycat(sock_fd_client, client_ip);
-                return;
-            }
+            printf("Connection refused, too many clients\n");
         }
-        printf("[GateKeeper] loop_hack = %d\n", loop_hack);
 	}
-    printf("[GateKeeper] went home :(\n");
 }
 
 void copycat(int sock_fd, const char *client_ip)
@@ -139,7 +159,8 @@ void copycat(int sock_fd, const char *client_ip)
 	DLB_ZERO(buffer_in);
 	DLB_ZERO(buffer_out);
 
-    printf("[CopyCat][%d][%s] Client connected\n", sock_fd, client_ip);
+    printf("[HELO] Client connected: %s\n", client_ip);
+
 	while (getppid() > 1 && loop_hack++ < 50000)
 	{
 		// TODO: Loop until newline
@@ -150,15 +171,14 @@ void copycat(int sock_fd, const char *client_ip)
 		}
 		else if (bytes < 0)
 		{
-			DLB_ERROR("[CopyCat] Failed to read from socket");
+			DLB_ERROR("Failed to read from socket");
 		}
 		buffer_in[bytes] = 0;
-		printf("[CopyCat][%d][%s][RECV][%d bytes]: %s\n", sock_fd, client_ip,
-                bytes, buffer_in);
+		printf("[RECV][%d bytes]:\n%s\n", bytes, buffer_in);
 
 		//strcpy(buffer_out, "This is a response.");
 		strcpy(buffer_out, buffer_in);
-		//bytes = write(sock_fd, buffer_out, strlen(buffer_out));
+		//bytes = write(client_sock_fd, buffer_out, strlen(buffer_out));
 		bytes = write(sock_fd, buffer_in, strlen(buffer_out));
 		if (bytes == 0)
 		{
@@ -166,10 +186,10 @@ void copycat(int sock_fd, const char *client_ip)
 		}
 		else if (bytes < 0)
 		{
-			DLB_ERROR("[CopyCat] Failed to write to socket");
+			DLB_ERROR("Failed to write to socket");
 		}
-		printf("[CopyCat][%d][%s][SEND][%d bytes]: %s\n", sock_fd, client_ip,
-                bytes, buffer_out);
+		printf("[SEND][%d bytes]:\n%s\n", bytes, buffer_out);
 	}
-    printf("[CopyCat][%d][%s] Client disconnected\n", sock_fd, client_ip);
+
+    printf("[GBYE] Client disconnected: %s\n", client_ip);
 }
