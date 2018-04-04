@@ -153,7 +153,7 @@ void copycat(int sock_fd, const char *client_ip)
 			DLB_ERROR("[CopyCat] Failed to read from socket");
 		}
 		buffer_in[bytes] = 0;
-		printf("[CopyCat][%d][%s][RECV][%d bytes]: %s\n", sock_fd, client_ip,
+		printf("[CopyCat][%d][%s][RECV][%d bytes] %s\n", sock_fd, client_ip,
                 bytes, buffer_in);
 
 		//strcpy(buffer_out, "This is a response.");
@@ -168,7 +168,7 @@ void copycat(int sock_fd, const char *client_ip)
 		{
 			DLB_ERROR("[CopyCat] Failed to write to socket");
 		}
-		printf("[CopyCat][%d][%s][SEND][%d bytes]: %s\n", sock_fd, client_ip,
+		printf("[CopyCat][%d][%s][SEND][%d bytes] %s\n", sock_fd, client_ip,
                 bytes, buffer_out);
 	}
     printf("[CopyCat][%d][%s] Client disconnected\n", sock_fd, client_ip);
