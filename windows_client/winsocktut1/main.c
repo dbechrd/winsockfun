@@ -44,17 +44,17 @@ int main(int argc, char *argv[])
     printf("[INIT] Let's get ready to rumble!\n");
     if (WSAStartup(MAKEWORD(2, 2), &wsa))
     {
-        return err("Failed to initialize WinSock.");
+        return err("Failed to initialize WinSock");
     }
     printf("[INIT] It works!\n");
 
-    printf("[RSLV] Resolving '%s'\n", HOSTNAME);
+    printf("[ADDR] Resolving '%s'\n", HOSTNAME);
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
     if (getaddrinfo(HOSTNAME, PORT, &hints, &addr_info))
     {
-        return err("Failed to get address info.");
+        return err("Failed to get address info");
     }
 
     for (ipv4 = addr_info; ipv4 != NULL; ipv4 = ipv4->ai_next)
@@ -70,24 +70,25 @@ int main(int argc, char *argv[])
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock == INVALID_SOCKET)
     {
-        return err("Failed to create socket.");
+        return err("Failed to create socket");
     }
 
     if (connect(sock, ipv4->ai_addr, ipv4->ai_addrlen) == SOCKET_ERROR)
     {
-        return err("Oops, I did it again.\n");
+        WSAECONNREFUSED;
+        return err("Failed to connect");
     }
     freeaddrinfo(addr_info);
 
     message = "Test payload!";
     if (msg_send(sock, message, strlen(message)) == SOCKET_ERROR)
     {
-        return err("Uh-oh. Looks like your message failed to send.");
+        return err("Failed to send message");
     }
     
     if (msg_recv(sock, response_buf, &response_len) == SOCKET_ERROR)
     {
-        return err("Hmmm, the lights are on but nobody's home.");
+        return err("Failed to receive response");
     }
 
     closesocket(sock);
@@ -101,7 +102,7 @@ int msg_send(SOCKET s, const char *msg, int len)
     int ret = send(s, msg, len, 0);
     if (ret > 0)
     {
-        printf("[SEND] Sent %d bytes:\n%.*s\n", len, len, msg);
+        printf("[SEND][%d bytes] %.*s\n", len, len, msg);
     }
     return ret;
 }
@@ -113,7 +114,7 @@ int msg_recv(SOCKET s, char *buf, int *len)
     {
         *len = ret;
         buf[*len] = 0;
-        printf("[RECV] Received %d bytes:\n%.*s\n", *len, *len, buf);
+        printf("[RECV][%d bytes] %.*s\n", *len, *len, buf);
     }
     return ret;
 }
@@ -121,8 +122,15 @@ int msg_recv(SOCKET s, char *buf, int *len)
 int err(const char *msg)
 {
     int err_code = WSAGetLastError();
+    char *sys = NULL;
+    FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+                   FORMAT_MESSAGE_IGNORE_INSERTS, 
+                   NULL, WSAGetLastError(),
+                   MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                   (LPTSTR)&sys, 0, NULL);
+    fprintf(stderr, "[ERROR] %s (%d: %s)", msg, err_code, sys);
+    LocalFree(sys);
     WSACleanup();
-    printf("[ERROR] Error code [%d].\n%s\n", err_code, msg);
     getchar();
     return err_code;
 }
