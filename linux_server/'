@@ -8,26 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define LOG_LEVEL_FATAL   1
-#define LOG_LEVEL_ERROR   2
-#define LOG_LEVEL_WARN    3
-#define LOG_LEVEL_INFO    4
-#define LOG_LEVEL_DEBUG   5
-#define LOG_LEVEL         LOG_LEVEL_INFO
-
-#define LOG_FATAL (LOG_LEVEL >= LOG_LEVEL_FATAL)
-#define LOG_ERROR (LOG_LEVEL >= LOG_LEVEL_ERROR)
-#define LOG_WARN  (LOG_LEVEL >= LOG_LEVEL_WARN)
-#define LOG_INFO  (LOG_LEVEL >= LOG_LEVEL_INFO)
-#define LOG_DEBUG (LOG_LEVEL >= LOG_LEVEL_DEBUG)
-
 #define DLB_UNUSED(x) ((void)x)
 #define DLB_ERROR(msg) do { dlb_assert(errno, msg, __FILE__, __LINE__); } while(0)
 #define DLB_ASSERT(cond) do { if (!cond) dlb_assert(errno, #cond, __FILE__, __LINE__); } while(0)
 #define DLB_ZERO(var) (memset(&var, 0, sizeof(var)))
-
-#define GEN_LIST(e, ...) e,
-#define GEN_STRING(e, ...) #e,
 
 void dlb_assert(int err, const char* msg, const char *file, int line)
 {
@@ -37,157 +21,58 @@ void dlb_assert(int err, const char* msg, const char *file, int line)
 	exit(1);
 }
 
-#define CFG_FILENAME "../../server.cfg"
-#define CFG_VAR_MAX_LEN 32
+// TODO: Config file
+#define CFG_FILENAME "sock_serv.cfg"
 #define MAX_CONNECTIONS 5
 #define PORT 8080
-
-#define CONFIG_VARS(f)  \
-    f(CFG_USERNAME)     \
-    f(CFG_PASSWORD)     \
-
-enum config_var
-{
-    CONFIG_VARS(GEN_LIST)
-    CFG_COUNT
-};
-char *config_var_str[] = {
-    CONFIG_VARS(GEN_STRING)
-};
-
-char config_vars[CFG_COUNT][CFG_VAR_MAX_LEN];
 
 void gatekeeper(int sock_fd_server);
 void copycat(int sock_fd, const char *client_ip);
 
-void buffer_cpy(char *dst, char *src, int len)
-{
-    int i = 0;
-    while (i < len)
-    {
-        dst[i] = src[i];
-        i++;
-    }
-}
-
 char read_byte(FILE *file, char *chr)
 {
     char c = 0;
-    if (fread(&c, sizeof(c), 1, file) != 1 && !feof(file))
+    if (fread(&c, sizeof(c), 1, file) < 0)
     {
         DLB_ERROR("[Server] Failed to read byte from file\n");
     }
-    if (chr) *chr = c;
-#if LOG_DEBUG
-    //printf("[DEBUG][byte] %c\n", c);
-#endif
-    return c;
-}
-
-int skip_until(FILE *file, char delim)
-{
-    char c = 0;
-    int i = 0;
-
-#if LOG_DEBUG
-    printf("[DEBUG] Skip until %d\n", delim);
-#endif
-
-    for(;;)
-    {
-        read_byte(file, &c);
-        i++;
-        if (c == 0 || c == delim)
-            break;
-    }
-
-#if LOG_DEBUG
-    printf("[DEBUG] Skipped %d bytes\n", i);
-#endif
-
-    return i;
+    chr = c;;
+    return chr;
 }
 
 int read_until(FILE *file, char *buffer, int length, char delim)
 {
     int i = 0;
     char c = 0;
-
-#if LOG_DEBUG
-    printf("[DEBUG] Read until %d\n", delim);
-#endif
-
-    while (i < length - 1)
+    while (read_byte(file, &c) != delim && i < length)
     {
-        read_byte(file, &c);
-        if (c == delim)
-            break;
-
         buffer[i] = c;
-        i++;
+        idx++;
     }
-
-#if LOG_DEBUG
-    printf("[DEBUG] Read %d bytes\n", i);
-#endif
-
-    if (c != delim)
-    {
-        skip_until(file, delim);
-    }
-    return i;
+    return idx;
 }
 
 void load_config(const char *filename)
 {
-    FILE *file;
-    enum config_var var;
-#if LOG_INFO
-    int i;
-    char c;
-#endif
+    FILE *cfg_file = NULL;
+    char buffer[256];
+    int idx = 0;
 
-    file = fopen(filename, "r");
-    if (!file)
+    DLB_ZERO(buffer);
+
+    cfg_file = fopen(filename, "r");
+    if (!cfg_file)
     {
         DLB_ERROR("[Server] Failed to open config file");
     }
 
-    var = (enum config_var)0;
-    for (; var < CFG_COUNT; var++)
+    if (fread(buffer[idx], sizeof(char), 1, cfg_file) < 0)
     {
-        read_until(file, config_vars[var], CFG_VAR_MAX_LEN, '\n');
+
+        idx++;
     }
 
-#if LOG_INFO
-    printf("[Server] Loaded config:\n");
-    var = (enum config_var)0;
-    for (; var < CFG_COUNT; var++)
-    {
-        i = 0;
-        printf("  [%d][%s] ", var, config_var_str[var]);
-        for (; i < CFG_VAR_MAX_LEN; i++)
-        {
-            c = config_vars[var][i];
-            if (c)
-            {
-                if (var == CFG_PASSWORD)
-                {
-                    printf("*");
-                }
-                else
-                {
-                    printf("%c", c);
-                }
-            }
-            else
-            {
-                printf(".");
-            }
-        }
-        printf("\n");
-    }
-#endif
+    return 0;
 }
 
 int main(int argc, char *argv[])
